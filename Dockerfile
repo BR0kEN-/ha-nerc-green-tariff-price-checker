@@ -15,8 +15,9 @@ RUN \
     harfbuzz \
     ca-certificates
 
-COPY index.js package*.json src ./
+COPY index.js package*.json ./
 RUN npm install --production
+COPY src/ ./src/
 COPY --chmod=755 ./run.sh /
 
 CMD ["/run.sh"]
