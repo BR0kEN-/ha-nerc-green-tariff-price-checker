@@ -1,0 +1,5 @@
+---
+# https://developers.home-assistant.io/docs/add-ons/repository#repository-configuration
+url: https://github.com/BR0kEN-/ha-nerc-green-tariff-price-checker
+name: "NERC: Green Tariff Price Checker"
+maintainer: Sergii Bondarenko <sb@firstvector.org>

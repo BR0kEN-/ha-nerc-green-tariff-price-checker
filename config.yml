@@ -1,0 +1,18 @@
+---
+url: https://github.com/BR0kEN-/ha-nerc-green-tariff-price-checker
+name: "NERC: Green Tariff Price Checker"
+slug: "ha-nerc-green-tariff-price-checker"
+version: "1.0.0"
+description: "Checks NERC Solar Green Tariff price per kW/h based on the agreement date."
+init: false
+arch:
+  - armhf
+  - armv7
+  - aarch64
+  - amd64
+  - i386
+ports:
+  8085/tcp: 8085
+map:
+  - type: share
+    read_only: False

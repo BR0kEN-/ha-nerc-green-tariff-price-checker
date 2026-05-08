@@ -1,0 +1,18 @@
+/*
+.*
+
+# All dirs.
+!*/
+# But:
+/node_modules/
+
+!.git*
+!*.yaml
+!*.yml
+!*.js
+
+!/.editorconfig
+!/Dockerfile
+!/package*.json
+!/README.md
+!/run.sh
