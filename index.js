@@ -1,3 +1,5 @@
+// noinspection ExceptionCaughtLocallyJS
+
 import express from 'express'
 import puppeteer from 'puppeteer'
 import { Logger } from './src/Logger.js'
@@ -5,11 +7,11 @@ import { Metadata } from './src/Metadata.js'
 import { findGreenTariffByDate } from './src/parser.js'
 
 const logger = new Logger()
-const metadata = new Metadata()
-const config = {
-  slug: '/acts/pro-vstanovlennya-zelenih-tarifiv-na-elektrichnu-energiyu-viroblenu-generuyuchimi-ustanovkami-privatnih-domogospodarstv-',
-  version: metadata.version,
-}
+const metadata = new Metadata({ error: null, tariff: null, decree: null })
+const targetUrl = 'https://www.nerc.gov.ua'
+const searchUrl = `${targetUrl}/api/search`
+const decreeTitle = 'Про встановлення «зелених» тарифів на електричну енергію, вироблену генеруючими установками приватних домогосподарств'
+const blockedResourceTypes = ['image', 'stylesheet', 'media', 'font']
 
 function dateToTimestamp(date) {
   if (!date || typeof date !== 'string') {
@@ -51,55 +53,77 @@ async function check(date) {
     page.setDefaultNavigationTimeout(5000)
     await page.setRequestInterception(true)
     await page.on('request', async (r) => {
-      if (r.resourceType() === 'document') {
-        await r.continue()
-      } else {
+      if (blockedResourceTypes.includes(r.resourceType())) {
         await r.abort('blockedbyclient')
+      } else {
+        await r.continue()
       }
     })
     logger.info('Page configured')
 
-    await page.goto(`https://www.nerc.gov.ua${config.slug}${config.version}`, { waitUntil: 'domcontentloaded' })
-    logger.info('Opened act version', config.version)
+    const waitForSearchResponse = async (action) => {
+      const [r] = await Promise.all([
+        page.waitForResponse((r) => r.url().startsWith(searchUrl)),
+        action(),
+      ])
 
-    while (true) {
-      const { version: currentVersion } = config
+      return r
+    }
 
-      config.version = await page.evaluate(
-        (_config) => {
-          for (const link of document.querySelectorAll(`a[href*="${_config.slug}"]`)) {
-            const version = Number(link.pathname.replace(_config.slug, ''))
+    let currentDecree
+    let currentPage = -1
+    let response = await waitForSearchResponse(
+      () => page.goto(`${targetUrl}/npasearch?&key=${encodeURIComponent(decreeTitle)}`),
+    )
 
-            if (version > _config.version) {
-              link.click()
-              return version
-            }
-          }
+    searching: while (true) {
+      let { data, current_page, next_page_url } = await response.json()
+      logger.info(`Searching on page ${current_page}...`)
 
-          return _config.version
-        },
-        config,
-      )
+      if (current_page === currentPage) {
+        throw new Error('Navigation did not happen!')
+      }
 
-      if (currentVersion === config.version) {
-        logger.info('Navigation completed')
+      for (const item of data) {
+        if (item.title === decreeTitle) {
+          currentDecree = item
+          break searching
+        }
+      }
+
+      if (!next_page_url) {
         break
       }
 
-      await page.waitForNavigation({ waitUntil: 'domcontentloaded' })
-      logger.info('Opened act version', config.version)
+      response = waitForSearchResponse(
+        // Scrolling to the bottom triggers next page autoloading.
+        () => page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)),
+      )
+
+      currentPage = current_page
+    }
+
+    if (!currentDecree) {
+      throw new Error('Cannot find a decree!')
+    }
+
+    if (
+      !currentDecree?.no
+      || !currentDecree?.url
+      || !currentDecree?.html_content
+      || !currentDecree?.published_at
+    ) {
+      throw new Error('Unexpected response!')
     }
 
     metadata.store({
       error: null,
-      tariff: findGreenTariffByDate(
-        await page.$$eval(
-          'main .editor-content',
-          (n) => n.reduce((a, b) => a + b.innerText, ''),
-        ),
-        targetTimestamp,
-      ),
-      version: config.version,
+      tariff: findGreenTariffByDate(currentDecree.html_content, targetTimestamp),
+      decree: {
+        id: currentDecree.no,
+        url: currentDecree.url,
+        publishedAt: currentDecree.published_at,
+      },
     })
 
     logger.info(metadata.tariff, 'on', new Date(targetTimestamp).toISOString())
@@ -108,10 +132,10 @@ async function check(date) {
     metadata.store({
       error: error.stack || error.message,
       tariff: metadata.tariff,
-      version: config.version,
+      decree: metadata.decree,
     })
   } finally {
-    await browser.close()
+    await browser?.close()
   }
 }
 
